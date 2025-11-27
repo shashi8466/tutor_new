@@ -743,8 +743,8 @@ const QuizFrame = ({
 **Explanation:** ${currentQuestion.explanation || ''}
 
 Would you like me to:
-1️⃣ Generate a similar question for extra practice
-2️⃣ Explain this concept in a different way
+1️⃣ Generate a similar SAT-level practice question
+2️⃣ Explain this concept in an easy way
 
 Just let me know which option you prefer!`
       }
@@ -752,48 +752,245 @@ Just let me know which option you prefer!`
     setPracticeQuestion(null);
   };
 
-  const generateSimilarQuestion = () => {
+  const generateSimilarQuestion = async () => {
     if (!currentQuestion) return;
     
     setIsTyping(true);
-    setTimeout(() => {
-      if (!currentQuestion.options) return;
-      
-      const correctAnswer = currentQuestion.options[currentQuestion.correct];
-      const options = [
-        correctAnswer,
-        ...currentQuestion.options.filter((_, index) => index !== currentQuestion.correct).slice(0, 2),
-        'A completely different concept'
-      ].sort(() => Math.random() - 0.5);
+    
+    try {
+      // Call the OpenAI API through our backend
+      const response = await fetch('http://localhost:5190/api/ai-tutor/generate-practice-question', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          topic: currentTopic,
+          level: currentLevel,
+          question: currentQuestion.question_text || currentQuestion.question,
+          options: currentQuestion.options,
+          correctAnswer: currentQuestion.options ? currentQuestion.options[currentQuestion.correct] : '',
+          explanation: currentQuestion.explanation || ''
+        })
+      });
 
-      const correctIndex = options.findIndex(opt => opt === correctAnswer);
+      if (response.ok) {
+        const data = await response.json();
+        
+        // Shuffle the options to prevent the correct answer from always being in the same position
+        const shuffleArray = (array) => {
+          const newArray = [...array];
+          for (let i = newArray.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [newArray[i], newArray[j]] = [newArray[j], newArray[i]];
+          }
+          return newArray;
+        };
+        
+        // Create a copy of the options and shuffle them
+        const shuffledOptions = shuffleArray(data.options);
+        
+        // Find the new index of the correct answer after shuffling
+        const correctAnswerIndex = shuffledOptions.findIndex(option => option === data.options[data.correct_answer]);
+        
+        // Create the practice question object with the correct structure
+        const practiceQuestionObj = {
+          question: data.question,
+          options: shuffledOptions,
+          correct: correctAnswerIndex,
+          explanation: data.explanation
+        };
+        
+        setPracticeQuestion(practiceQuestionObj);
+        setIsTyping(false);
+        setChatMessages(prev => [
+          ...prev,
+          {
+            type: 'ai',
+            content: `Great choice! Here's a similar SAT-level practice question to help you master this concept:
 
-      const similarQuestion = {
-        question: `Practice Question: ${currentQuestion.question.replace('According to', 'Based on your understanding of').replace('Based on', 'Considering')}`,
-        options: options,
-        correct: correctIndex,
-        explanation: `This practice question helps reinforce the same concept: ${currentTopic}. The correct answer follows the same logic as the original question.`
-      };
+**${data.question}**
 
-      setPracticeQuestion(similarQuestion);
-      setIsTyping(false);
-      setChatMessages(prev => [
-        ...prev,
-        {
-          type: 'ai',
-          content: `Great choice! Here's a similar practice question to help you master this concept:
+${shuffledOptions.map((opt, i) => `${i + 1}. ${opt}`).join('\n')}
+
+Take your time to think about it, and let me know your answer!`
+          }
+        ]);
+      } else {
+        // Fallback to original implementation if API call fails
+        console.error('Failed to generate practice question via API, using fallback');
+        setTimeout(() => {
+          if (!currentQuestion.options) return;
+          
+          const correctAnswer = currentQuestion.options[currentQuestion.correct];
+          const options = [
+            correctAnswer,
+            ...currentQuestion.options.filter((_, index) => index !== currentQuestion.correct).slice(0, 2),
+            'A completely different concept'
+          ];
+          
+          // Shuffle the options for the fallback as well
+          const shuffleArray = (array) => {
+            const newArray = [...array];
+            for (let i = newArray.length - 1; i > 0; i--) {
+              const j = Math.floor(Math.random() * (i + 1));
+              [newArray[i], newArray[j]] = [newArray[j], newArray[i]];
+            }
+            return newArray;
+          };
+          
+          const shuffledOptions = shuffleArray(options);
+          const correctIndex = shuffledOptions.findIndex(opt => opt === correctAnswer);
+
+          const similarQuestion = {
+            question: `Practice Question: ${currentQuestion.question.replace('According to', 'Based on your understanding of').replace('Based on', 'Considering')}`,
+            options: shuffledOptions,
+            correct: correctIndex,
+            explanation: `This practice question helps reinforce the same concept: ${currentTopic}. The correct answer follows the same logic as the original question.`
+          };
+
+          setPracticeQuestion(similarQuestion);
+          setIsTyping(false);
+          setChatMessages(prev => [
+            ...prev,
+            {
+              type: 'ai',
+              content: `Great choice! Here's a similar practice question to help you master this concept:
 
 **${similarQuestion.question}**
 
 ${similarQuestion.options.map((opt, i) => `${i + 1}. ${opt}`).join('\n')}
 
 Take your time to think about it, and let me know your answer!`
-        }
-      ]);
-    }, 2000);
+            }
+          ]);
+        }, 2000);
+      }
+    } catch (error) {
+      // Fallback to original implementation if API call fails
+      console.error('Error generating practice question via API, using fallback:', error);
+      setTimeout(() => {
+        if (!currentQuestion.options) return;
+        
+        const correctAnswer = currentQuestion.options[currentQuestion.correct];
+        const options = [
+          correctAnswer,
+          ...currentQuestion.options.filter((_, index) => index !== currentQuestion.correct).slice(0, 2),
+          'A completely different concept'
+        ];
+        
+        // Shuffle the options for the fallback as well
+        const shuffleArray = (array) => {
+          const newArray = [...array];
+          for (let i = newArray.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [newArray[i], newArray[j]] = [newArray[j], newArray[i]];
+          }
+          return newArray;
+        };
+        
+        const shuffledOptions = shuffleArray(options);
+        const correctIndex = shuffledOptions.findIndex(opt => opt === correctAnswer);
+
+        const similarQuestion = {
+          question: `Practice Question: ${currentQuestion.question.replace('According to', 'Based on your understanding of').replace('Based on', 'Considering')}`,
+          options: shuffledOptions,
+          correct: correctIndex,
+          explanation: `This practice question helps reinforce the same concept: ${currentTopic}. The correct answer follows the same logic as the original question.`
+        };
+
+        setPracticeQuestion(similarQuestion);
+        setIsTyping(false);
+        setChatMessages(prev => [
+          ...prev,
+          {
+            type: 'ai',
+            content: `Great choice! Here's a similar practice question to help you master this concept:
+
+**${similarQuestion.question}**
+
+${similarQuestion.options.map((opt, i) => `${i + 1}. ${opt}`).join('\n')}
+
+Take your time to think about it, and let me know your answer!`
+          }
+        ]);
+      }, 2000);
+    }
   };
 
-  const handleChatSubmit = (e) => {
+  const explainConceptSimply = async () => {
+    if (!currentQuestion) return;
+    
+    setIsTyping(true);
+    
+    try {
+      // Call the OpenAI API through our backend
+      const response = await fetch('http://localhost:5190/api/ai-tutor/explain-concept', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          topic: currentTopic,
+          level: currentLevel,
+          question: currentQuestion.question_text || currentQuestion.question,
+          correctAnswer: currentQuestion.options ? currentQuestion.options[currentQuestion.correct] : '',
+          explanation: currentQuestion.explanation || ''
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        
+        setIsTyping(false);
+        setChatMessages(prev => [
+          ...prev,
+          {
+            type: 'ai',
+            content: `${data.explanation}
+
+Should I give you one more example?`
+          }
+        ]);
+      } else {
+        // Fallback to original implementation if API call fails
+        console.error('Failed to explain concept via API, using fallback');
+        setIsTyping(false);
+        setChatMessages(prev => [
+          ...prev,
+          {
+            type: 'ai',
+            content: `Let me explain ${currentTopic} in an easy way:
+
+Think of it like building blocks. First, you need to understand the basic foundation (${currentLevel} level). Then you can add more complex ideas on top.
+
+The key point from the question is: ${currentQuestion && currentQuestion.explanation ? currentQuestion.explanation.split('.')[0] : ''}.
+
+Does this help clarify the concept for you?`
+          }
+        ]);
+      }
+    } catch (error) {
+      // Fallback to original implementation if API call fails
+      console.error('Error explaining concept via API, using fallback:', error);
+      setIsTyping(false);
+      setChatMessages(prev => [
+        ...prev,
+        {
+          type: 'ai',
+          content: `Let me explain ${currentTopic} in an easy way:
+
+Think of it like building blocks. First, you need to understand the basic foundation (${currentLevel} level). Then you can add more complex ideas on top.
+
+The key point from the question is: ${currentQuestion && currentQuestion.explanation ? currentQuestion.explanation.split('.')[0] : ''}.
+
+Does this help clarify the concept for you?`
+        }
+      ]);
+    }
+  };
+
+  const handleChatSubmit = async (e) => {
     e.preventDefault();
     if (!chatInput.trim()) return;
 
@@ -802,54 +999,54 @@ Take your time to think about it, and let me know your answer!`
     setChatInput('');
     setIsTyping(true);
 
-    setTimeout(() => {
-      let aiResponse = '';
-
-      if (practiceQuestion) {
-        // Handle practice question answers
-        const answerIndex = parseInt(userMessage) - 1;
-        if (!isNaN(answerIndex) && practiceQuestion.options && answerIndex >= 0 && answerIndex < practiceQuestion.options.length) {
-          const isPracticeCorrect = answerIndex === practiceQuestion.correct;
-          aiResponse = isPracticeCorrect ?
-            `🎉 **Excellent!** That's the correct answer!
+    if (practiceQuestion) {
+      // Handle practice question answers
+      const answerIndex = parseInt(userMessage) - 1;
+      if (!isNaN(answerIndex) && practiceQuestion.options && answerIndex >= 0 && answerIndex < practiceQuestion.options.length) {
+        const isPracticeCorrect = answerIndex === practiceQuestion.correct;
+        const responseMessage = isPracticeCorrect ?
+          `🎉 **Excellent!** That's the correct answer!
 
 ${practiceQuestion.explanation}
 
-You're really getting the hang of ${currentTopic}. Keep up the great work!` :
-            `Not quite right. The correct answer is **${practiceQuestion.options[practiceQuestion.correct]}**.
+You're really getting the hang of ${currentTopic}. Keep up the great work!
+
+Would you like me to:
+1️⃣ Generate a similar question for extra practice
+2️⃣ Explain this concept in a different way` :
+          `Not quite right. The correct answer is **${practiceQuestion.options[practiceQuestion.correct]}**.
 
 ${practiceQuestion.explanation}
 
-Would you like me to generate another practice question, or explain this concept differently?`;
-          setPracticeQuestion(null);
-        } else {
-          aiResponse = 'Please select a number from 1 to 4 for your answer.';
-        }
+Would you like me to:
+1️⃣ Generate a similar question for extra practice
+2️⃣ Explain this concept in a different way`;
+        
+        setPracticeQuestion(null);
+        setChatMessages(prev => [...prev, { type: 'ai', content: responseMessage }]);
+        setIsTyping(false);
       } else {
-        // Handle general chat responses
-        if (userMessage.includes('1') || userMessage.toLowerCase().includes('practice')) {
-          generateSimilarQuestion();
-          return;
-        } else if (userMessage.includes('2') || userMessage.toLowerCase().includes('explain')) {
-          aiResponse = `Let me explain ${currentTopic} in a different way:
-
-Think of it like building blocks. First, you need to understand the basic foundation (${currentLevel} level). Then you can add more complex ideas on top.
-
-The key point from the question is: ${currentQuestion && currentQuestion.explanation ? currentQuestion.explanation.split('.')[0] : ''}.
-
-Does this help clarify the concept for you?`;
-        } else {
-          aiResponse = `I'm here to help you with ${currentTopic}! Would you like me to:
-1️⃣ Generate a similar practice question
-2️⃣ Explain the concept differently
-
-Just let me know which option you'd prefer!`;
-        }
+        setChatMessages(prev => [...prev, { type: 'ai', content: 'Please select a number from 1 to 4 for your answer.' }]);
+        setIsTyping(false);
       }
+    } else {
+      // Handle general chat responses
+      if (userMessage.includes('1') || userMessage.toLowerCase().includes('practice')) {
+        await generateSimilarQuestion();
+      } else if (userMessage.includes('2') || userMessage.toLowerCase().includes('explain')) {
+        await explainConceptSimply();
+      } else {
+        setChatMessages(prev => [...prev, { 
+          type: 'ai', 
+          content: `I'm here to help you with ${currentTopic}! Would you like me to:
+1️⃣ Generate a similar SAT-level practice question
+2️⃣ Explain this concept in an easy way
 
-      setChatMessages(prev => [...prev, { type: 'ai', content: aiResponse }]);
-      setIsTyping(false);
-    }, 1500);
+Just let me know which option you'd prefer!` 
+        }]);
+        setIsTyping(false);
+      }
+    }
   };
 
   // Enhanced loading state
@@ -1449,12 +1646,12 @@ Just let me know which option you'd prefer!`;
                     onChange={(e) => setChatInput(e.target.value)}
                     placeholder="Type your message..."
                     className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    disabled={isTyping || practiceQuestion}
+                    disabled={isTyping}
                   />
                   <button
                     type="submit"
                     className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
-                    disabled={!chatInput.trim() || isTyping || practiceQuestion}
+                    disabled={!chatInput.trim() || isTyping}
                   >
                     Send
                   </button>

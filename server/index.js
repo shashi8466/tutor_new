@@ -8,9 +8,24 @@ import QuizParser from './quizParser.js'
 import QuizParserImproved from './quizParserImproved.js'
 import QuizParserFixed from './quizParserFixed.js'
 import { fileURLToPath } from 'url'
+import { config } from 'dotenv'
+import OpenAI from 'openai'
+
+config() // Load environment variables
+
+// Debug: Log the API key to see if it's loaded correctly
+console.log('OPENAI_API_KEY from env:', process.env.OPENAI_API_KEY ? `${process.env.OPENAI_API_KEY.substring(0, 10)}...${process.env.OPENAI_API_KEY.substring(process.env.OPENAI_API_KEY.length - 4)}` : 'not found')
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
+
+// Initialize OpenAI client
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY || 'your-api-key-here'
+})
+
+// Debug: Log the actual key being used
+console.log('OpenAI client initialized with key:', openai.apiKey ? `${openai.apiKey.substring(0, 10)}...${openai.apiKey.substring(openai.apiKey.length - 4)}` : 'not found')
 
 // Ensure storage directory exists
 const STORAGE_ROOT = path.join(__dirname, 'storage', 'quiz-docs')
@@ -647,7 +662,7 @@ app.get('/api/questions', (req, res) => {
           question_type: r.question_type || 'mcq',
           image_url: imageUrl,
           tables: tables,
-          math_expressions: mathExpressions,
+          math_expressions: math_expressions,
           documentName: r.documentName || '',  // Added document name
           documentSize: r.documentSize || 0   // Added document size
         }
@@ -819,6 +834,134 @@ app.delete('/api/courses/:courseId/uploads', (req, res) => {
   res.json({ success: true })
 })
 
+// AI Tutor: Generate a similar practice question
+app.post('/api/ai-tutor/generate-practice-question', async (req, res) => {
+  try {
+    const { topic, level, question, options, correctAnswer, explanation } = req.body
+
+    const prompt = `You are an AI tutor helping students prepare for the SAT exam. 
+    The student answered a question incorrectly about "${topic}" at the ${level} level.
+    
+    Original question: ${question}
+    Options: ${options.join(', ')}
+    Correct answer: ${correctAnswer}
+    Explanation: ${explanation}
+    
+    Please generate a new, original SAT-style practice question that tests the same concept but with different wording and numbers.
+    The question should follow SAT format and difficulty level appropriate for ${level} students.
+    
+    Provide your response in JSON format with the following structure:
+    {
+      "question": "The new SAT-style question text",
+      "options": ["Option 1", "Option 2", "Option 3", "Option 4"],
+      "correct_answer": 0, // Index of the correct option (0-3)
+      "explanation": "Explanation of why the answer is correct, written in a way that helps students understand the underlying concept"
+    }
+    
+    Make sure the question:
+    1. Follows SAT question format and style
+    2. Has realistic distractors (incorrect options) that are plausible but wrong
+    3. Tests the same core concept as the original question
+    4. Uses clear, concise language appropriate for high school students
+    5. Is at the appropriate difficulty level for ${level}
+    
+    Example SAT-style question format:
+    "In a right triangle, if the length of the side adjacent to angle A is 5 and the length of the hypotenuse is 13, what is cos(A)?"
+    
+    Options should be formatted as simple, clear choices.`
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-3.5-turbo",
+      messages: [
+        { role: "system", content: "You are a helpful AI tutor that creates educational content, specifically SAT-style practice questions." },
+        { role: "user", content: prompt }
+      ],
+      temperature: 0.7,
+      max_tokens: 500,
+      response_format: { type: "json_object" }
+    })
+
+    const response = JSON.parse(completion.choices[0].message.content)
+    res.json(response)
+  } catch (error) {
+    console.error('AI Tutor error:', error)
+    // Provide more specific error messages
+    if (error.status === 429) {
+      res.status(429).json({ 
+        error: 'API quota exceeded. Please check your OpenAI plan and billing details.',
+        details: 'You have exceeded your current quota. Please check your plan and billing details.'
+      })
+    } else if (error.status === 401) {
+      res.status(401).json({ 
+        error: 'Invalid API key. Please check your OpenAI API key.',
+        details: error.message
+      })
+    } else {
+      res.status(500).json({ 
+        error: 'Failed to generate practice question',
+        details: error.message
+      })
+    }
+  }
+})
+
+// AI Tutor: Explain concept in simpler terms
+app.post('/api/ai-tutor/explain-concept', async (req, res) => {
+  try {
+    const { topic, level, question, correctAnswer, explanation } = req.body
+
+    const prompt = `You are an AI tutor helping students understand concepts in simpler terms.
+    The student had trouble with a question about "${topic}" at the ${level} level.
+    
+    Original question: ${question}
+    Correct answer: ${correctAnswer}
+    Explanation: ${explanation}
+    
+    Please provide a simplified explanation of this concept using:
+    1. Step-by-step breakdown
+    2. Simple analogies or real-world examples
+    3. Student-friendly language
+    
+    Format your response as JSON with the following structure:
+    {
+      "explanation": "Simple step-by-step explanation with analogies"
+    }`
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-3.5-turbo",
+      messages: [
+        { role: "system", content: "You are a patient and helpful AI tutor that explains concepts simply." },
+        { role: "user", content: prompt }
+      ],
+      temperature: 0.5,
+      max_tokens: 800,
+      response_format: { type: "json_object" }
+    })
+
+    const response = JSON.parse(completion.choices[0].message.content)
+    res.json(response)
+  } catch (error) {
+    console.error('AI Tutor error:', error)
+    // Provide more specific error messages
+    if (error.status === 429) {
+      res.status(429).json({ 
+        error: 'API quota exceeded. Please check your OpenAI plan and billing details.',
+        details: 'You have exceeded your current quota. Please check your plan and billing details.'
+      })
+    } else if (error.status === 401) {
+      res.status(401).json({ 
+        error: 'Invalid API key. Please check your OpenAI API key.',
+        details: error.message
+      })
+    } else {
+      res.status(500).json({ 
+        error: 'Failed to explain concept',
+        details: error.message
+      })
+    }
+  }
+})
+
 // Debug endpoint to check all course data
 app.get('/api/debug/courses', (req, res) => {
   try {
@@ -871,7 +1014,160 @@ app.get('/api/debug/course/:courseId', (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 5179
+// AI Tutor: Generate a similar practice question
+app.post('/api/ai-tutor/generate-practice-question', async (req, res) => {
+  try {
+    const { topic, level, question, options, correctAnswer, explanation } = req.body;
+    
+    // Create a prompt for generating a similar SAT-level question
+    const prompt = `Generate a similar SAT-level practice question based on the following:
+
+Topic: ${topic}
+Difficulty: ${level}
+Original Question: ${question}
+Options: ${options ? options.join(', ') : 'N/A'}
+Correct Answer: ${correctAnswer}
+Explanation: ${explanation}
+
+Requirements:
+1. MUST be SAT-level difficulty
+2. MUST test the same concept but with different wording
+3. MUST create 4 options (A-D) with:
+   - 1 correct answer
+   - 3 realistic distractors (common mistakes or related concepts)
+4. MUST not repeat the exact same question
+5. MUST provide a clear explanation
+
+Format your response as JSON with the following structure:
+{
+  "question": "The new question text",
+  "options": ["Option A", "Option B", "Option C", "Option D"],
+  "correct_answer": 0, // Index of correct option (0-3)
+  "explanation": "Explanation of why the answer is correct"
+}`;
+
+    // Call OpenAI API
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-3.5-turbo',
+      messages: [
+        {
+          role: 'system',
+          content: 'You are an expert SAT tutor who creates high-quality practice questions. You always respond with valid JSON.'
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+      temperature: 0.7,
+      max_tokens: 500
+    });
+
+    // Parse the response
+    const responseText = completion.choices[0].message.content;
+    let aiResponse;
+    
+    try {
+      // Try to parse as JSON
+      aiResponse = JSON.parse(responseText);
+    } catch (parseError) {
+      // If JSON parsing fails, try to extract JSON from markdown code blocks
+      const jsonMatch = responseText.match(/\{[^}]+\}/s);
+      if (jsonMatch) {
+        try {
+          aiResponse = JSON.parse(jsonMatch[0]);
+        } catch (innerError) {
+          throw new Error('Failed to parse AI response as JSON');
+        }
+      } else {
+        throw new Error('Failed to extract JSON from AI response');
+      }
+    }
+
+    res.json(aiResponse);
+  } catch (error) {
+    console.error('AI Tutor - Generate Practice Question Error:', error);
+    res.status(500).json({ 
+      error: 'Failed to generate practice question', 
+      details: error.message 
+    });
+  }
+});
+
+// AI Tutor: Explain concept in simpler terms
+app.post('/api/ai-tutor/explain-concept', async (req, res) => {
+  try {
+    const { topic, level, question, correctAnswer, explanation } = req.body;
+    
+    // Create a prompt for explaining the concept simply
+    const prompt = `Explain the following concept in simpler terms for a student:
+
+Topic: ${topic}
+Difficulty: ${level}
+Question: ${question}
+Correct Answer: ${correctAnswer}
+Explanation: ${explanation}
+
+Requirements:
+1. Use student-friendly language (avoid advanced terminology)
+2. Include step-by-step breakdown
+3. Provide simple analogies or real-world examples
+4. Keep explanations clear and concise
+
+Format your response as JSON with the following structure:
+{
+  "explanation": "Simple step-by-step explanation with analogies"
+}`;
+
+    // Call OpenAI API
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-3.5-turbo',
+      messages: [
+        {
+          role: 'system',
+          content: 'You are an expert educator who explains concepts in simple, student-friendly terms. You always respond with valid JSON.'
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+      temperature: 0.7,
+      max_tokens: 500
+    });
+
+    // Parse the response
+    const responseText = completion.choices[0].message.content;
+    let aiResponse;
+    
+    try {
+      // Try to parse as JSON
+      aiResponse = JSON.parse(responseText);
+    } catch (parseError) {
+      // If JSON parsing fails, try to extract JSON from markdown code blocks
+      const jsonMatch = responseText.match(/\{[^}]+\}/s);
+      if (jsonMatch) {
+        try {
+          aiResponse = JSON.parse(jsonMatch[0]);
+        } catch (innerError) {
+          throw new Error('Failed to parse AI response as JSON');
+        }
+      } else {
+        throw new Error('Failed to extract JSON from AI response');
+      }
+    }
+
+    res.json(aiResponse);
+  } catch (error) {
+    console.error('AI Tutor - Explain Concept Error:', error);
+    res.status(500).json({ 
+      error: 'Failed to explain concept', 
+      details: error.message 
+    });
+  }
+});
+
+const PORT = process.env.PORT || 5190
 app.listen(PORT, () => {
   console.log(`SQL API listening on http://localhost:${PORT}`)
 })
